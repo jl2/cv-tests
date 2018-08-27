@@ -9,6 +9,7 @@
   :license  "ISC"
   :version "0.0.1"
   :serial t
-  :depends-on (#:cffi #:common-cv #:trivial-main-thread)
   :components ((:file "package")
-               (:file "cv-tests")))
+               (:file "cv-tests"))
+  :depends-on (#:cffi #:common-cv #:trivial-main-thread)
+  :in-order-to ((test-op (test-op :cv-tests.test))))
