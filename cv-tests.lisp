@@ -17,11 +17,11 @@
   `(trivial-main-thread:call-in-main-thread
     (lambda () 
       #+sbcl (sb-int:with-float-traps-masked (:invalid :divide-by-zero :overflow)
-	       ,@body)
+               ,@body)
       #+ccl (unwind-protect (progn
-			       (ccl:set-fpu-mode :invalid nil)
-			       ,@body)
-	       (ccl:set-fpu-mode :invalid t))
+                              (ccl:set-fpu-mode :invalid nil)
+                              ,@body)
+              (ccl:set-fpu-mode :invalid t))
       #-(or sbcl ccl)
       ,@body)))
 
@@ -79,27 +79,33 @@
          (width (cv:size-width size))
          (height (cv:size-height size))
          (bars nil))
-    (format t "Checking image of size: ~ax~a~%" width height)
-    (handler-case 
+    (handler-case
         (loop
            with bar-start = nil
            for j below width do
              (let ((y-coord (floor (/ height 3))))
-               (cond ((and (> (cv:get-real-2d img y-coord j) threshold)
+               (cond ((and (< (cv:get-real-2d img y-coord j) threshold)
                            (null bar-start))
-                      (setf bar-start j)
-                      (cv:set-real-2d display y-coord j 255))
-                     ((and (> (cv:get-real-2d img y-coord j) threshold)
-                           bar-start)
-                      (push (cons j bar-start) bars)
-                      
-                      (setf bar-start nil))
-                     
-                     (bar-start
-                      (cv:set-real-2d display y-coord j 255)))))
+                      (setf bar-start j))
+                     ((and bar-start
+                           (> (cv:get-real-2d img y-coord j) threshold))
+                      (when (> (- j bar-start) 1)
+                        (push (cons j bar-start) bars)
+                        (loop for xl from bar-start to j do
+                             (cv:set-2d display y-coord xl (cv:scalar 0 0 255)))
+                        (setf bar-start nil))))))
       (error (err) (format t "Error: ~a~%" err)))
-    (format t "Found bars: ~a~%" bars)
+    (when bars (format t "Found bars: ~a~%" bars))
     bars))
+
+(defun process-images (input temp output)
+  (let ((threshold 30))
+    ;;(cv:normalize input temp )
+    (cv:adaptive-threshold  input temp 240 cv:+adaptive-thresh-mean-c+ cv:+thresh-binary+ 3 7)
+    ;;  (cv:threshold input temp threshold 255 cv:+thresh-binary+)
+    (read-bar-code temp output :threshold threshold)
+    ;; (cv:cvt-color temp output cv:+gray-2-rgb+)
+    ))
 
 (defun read-bar-code-from-camera (&key (camera 0) (fps 60))
   (with-gui-thread
@@ -107,16 +113,13 @@
       (cv:with-captured-camera (vid :width 1920 :height 1080
                                     :idx camera)
         (loop
-           (let* ((frame (cv:query-frame vid)))
+           (let* ((frame (cv:query-frame vid))
+                  )
              (cv:with-ipl-images ((src (cv:get-size frame) cv:+ipl-depth-8u+ 1)
-                                  (dst (cv:get-size frame) cv:+ipl-depth-8u+ 1)
-                                  (final (cv:get-size frame) cv:+ipl-depth-32f+ 1))
-               
+                                  (dst (cv:get-size frame) cv:+ipl-depth-8u+ 1))
                (cv:cvt-color frame src cv:+rgb-2-gray+)
-               (cv:canny src dst 80.0 100.0 7)
-               (cv:adaptive-threshold dst dst 255 cv:+adaptive-thresh-mean-c+ cv:+thresh-binary+ 7 7 )
-               (read-bar-code dst dst)
-               (cv:show-image "bar-code-scanner" dst))
+               (process-images src dst frame)
+               (cv:show-image "bar-code-scanner" frame))
              (let ((c (cv:wait-key (floor (/ 1000 fps)))))
                (when (= c 27)
                  (return)))))))))
